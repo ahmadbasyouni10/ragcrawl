@@ -93,18 +93,35 @@ fn main() {
 
         println!("Fetching {}", current_url);
 
-        let html_content = fetch_page(&current_url);
+        let html_content = match fetch_page(&current_url) {
+            Ok(content) => content,
+            Err(e) => {
+                println!("Error fetching page: {}", e);
+                spider.mark_visited(current_url);
+                continue;
+            }
+        };
 
         println!("Got HTML of size: {}", html_content.len());
 
-        let found_links= find_links(&html_content);
+        let found_links = find_links(&current_url, &html_content);
 
         println!("Found {} links on this page", found_links.len());
 
-        for link in found_links {
-            if link.starts_with("http") {
-                spider.enqueue(link);
-            }
+        for link in &found_links {
+            spider.enqueue(link.clone());
+        }
+
+        let (title, content) = extract_content(&html_content);
+        let page = Page {
+            url: current_url.clone(),
+            title,
+            content,
+            links_found: found_links.len(),
+        };
+
+        if let Ok(json) = serde_json::to_string(&page) {
+            writeln!(file, "{}", json).ok();
         }
 
         spider.mark_visited(current_url);
@@ -116,30 +133,57 @@ fn main() {
     }
 }
 
-fn fetch_page(target_url: &String) -> String {
+fn fetch_page(target_url: &String) -> Result<String, String> {
     println!("url: {}", target_url);
 
-    let response = match reqwest::blocking::get(target_url) {
-        Ok(resp) => resp,
-        Err(_) => return String::new(),
-    };
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
 
-    match response.text() {
-        Ok(text) => text,
-        Err(_) => return String::new(),
+    let response = client.get(target_url).send()
+        .map_err(|e| e.to_string())?;
+
+    let text = response.text().map_err(|e| e.to_string())?;
+    if text.len() < 1000 {
+        return Err("Page too small".to_string());
     }
-
+    Ok(text)
 }
 
-fn find_links(html_content: &str) -> Vec<String> {
+fn find_links(base_url: &str, html_content: &str) -> Vec<String> {
     let mut links = Vec::new();
     let document = Html::parse_document(html_content);
     let selector : Selector = Selector::parse("a").unwrap();
+    let base = match Url::parse(base_url) {
+        Ok(url) => url,
+        Err(_) => return links,
+    };
+
     for element in document.select(&selector) {
-        match element.value().attr("href") {
-            Some(link) => links.push(link.to_string()),
-            None => println!("Found tag with no link"),
+        if let Some(href) = element.value().attr("href") {
+            if let Ok(absolute_url) = base.join(href) {
+                let url_str = absolute_url.to_string();
+                if !url_str.contains("#") {
+                    links.push(url_str);
+                }
+            }
         }
     }
-    links
+    links 
+}
+
+fn extract_content(html: &str) -> (String, String) {
+    let document = Html::parse_document(html);
+    let title = document.select(&Selector::parse("title").unwrap())
+        .next()
+        .map(|el| el.text().collect::<String>())
+        .unwrap_or("No Title".to_string());
+
+    let content = document.select(&Selector::parse("body").unwrap())
+        .next()
+        .map(|el| el.text().collect::<Vec<_>>().join(" "))
+        .unwrap_or(String::new());
+    (title, content.chars().take(5000).collect())
 }
