@@ -6,7 +6,6 @@ use std::fs::OpenOptions;
 use url::Url;
 use std::io::Write;
 
-
 #[derive(Serialize, Debug)]
 struct Page {
     url: String,
@@ -40,8 +39,13 @@ impl Spider {
     }
 
     fn enqueue(&mut self, url: String) {
-        if !self.visited.contains(&url) && self.is_same_domain(&url) {
-            self.queue.push_back(url);
+        let normalized = match normalize_url(&url) {
+            Ok(n) => n,
+            Err(_) => return,
+        };
+
+        if !self.visited.contains(&normalized) && self.is_same_domain(&normalized) {
+            self.queue.push_back(normalized);
         }
     }
 
@@ -164,9 +168,12 @@ fn find_links(base_url: &str, html_content: &str) -> Vec<String> {
     for element in document.select(&selector) {
         if let Some(href) = element.value().attr("href") {
             if let Ok(absolute_url) = base.join(href) {
-                let url_str = absolute_url.to_string();
-                if !url_str.contains("#") {
-                    links.push(url_str);
+                let scheme = absolute_url.scheme();
+                if scheme != "http" && scheme != "https" {
+                    continue;
+                }
+                if let Ok(normalized) = normalize_url(&absolute_url.to_string()) {
+                    links.push(normalized);
                 }
             }
         }
@@ -186,4 +193,20 @@ fn extract_content(html: &str) -> (String, String) {
         .map(|el| el.text().collect::<Vec<_>>().join(" "))
         .unwrap_or(String::new());
     (title, content.chars().take(5000).collect())
+}
+
+fn normalize_url(url_str: &str) -> Result<String, String> {
+    let mut url = Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
+
+    // Remove fragment
+    url.set_fragment(None);
+
+    // Normalize path: remove trailing slash unless the path is exactly "/"
+    let path = url.path().to_string();
+    if path != "/" && path.ends_with('/') {
+        let trimmed = path.trim_end_matches('/');
+        url.set_path(trimmed);
+    }
+
+    Ok(url.to_string())
 }
