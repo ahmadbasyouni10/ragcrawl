@@ -928,6 +928,8 @@ dependencies = [
  "anyhow",
  "reqwest",
  "scraper",
+ "serde",
+ "serde_json",
  "url",
 ]
 
