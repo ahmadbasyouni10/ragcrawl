@@ -198,10 +198,8 @@ fn extract_content(html: &str) -> (String, String) {
 fn normalize_url(url_str: &str) -> Result<String, String> {
     let mut url = Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
 
-    // Remove fragment
     url.set_fragment(None);
 
-    // Normalize path: remove trailing slash unless the path is exactly "/"
     let path = url.path().to_string();
     if path != "/" && path.ends_with('/') {
         let trimmed = path.trim_end_matches('/');
