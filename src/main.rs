@@ -331,3 +331,12 @@ fn normalize_url(url_str: &str) -> Result<String, String> {
 
     Ok(url.to_string())
 }
+
+fn extract_base_domain(domain: &str) -> String { 
+    let parts: Vec<&str> = domain.split('.').collect();
+    if parts.len() >= 2 {
+        parts[parts.len() - 2..].join(".")
+    } else {
+        domain.to_string()
+    }
+}
