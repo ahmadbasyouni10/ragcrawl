@@ -18,6 +18,7 @@ struct Spider {
     queue: VecDeque<String>,
     visited: HashSet<String>,
     domain: String,
+    base_domain: String,
 }
 
 impl Spider { 
@@ -29,11 +30,15 @@ impl Spider {
             .ok_or("No domain found")?
             .to_string();
 
+        let base_domain = extract_base_domain(&domain);
+
         let mut spider = Spider {
             queue: VecDeque::new(),
             visited: HashSet::new(),
             domain,
+            base_domain,
         };
+
         spider.enqueue(start_url.to_string());
         Ok(spider)
     }
@@ -56,7 +61,9 @@ impl Spider {
     fn is_same_domain(&self, url: &str) -> bool {
         if let Ok(parsed_url) = Url::parse(url) {
             if let Some(host) = parsed_url.host_str() {
-                return host == self.domain;
+                return host == self.domain
+                    || host == self.base_domain
+                    || host.ends_with(&format!(".{}", self.base_domain));
             }
         }
         false
@@ -72,18 +79,32 @@ impl Spider {
         }
     }
 }
+
+struct Config {
+    start_url: String,
+}
+
+impl Config {
+    fn build(args: &[String]) -> Result<Config, &'static str> {
+        if args.len() < 2 {
+            println!("Please provide a url");
+            println!("Usage: cargo run <start_url>");
+            return Err("Please provide a url\nUsage: cargo run <start_url>");
+        }
+        let start_url = args[1].clone();
+        Ok(Config { start_url })
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let config = Config::build(&args).unwrap_or_else(|err| {
+        println!("Problem parsing arguments: {}", err);
+        std::process::exit(1);
+        });
+    let start_url = config.start_url;
 
-    if args.len() < 2 {
-        println!("Please provide a url");
-        println!("Usage: cargo run <start_url>");
-        return;
-    }
-
-    let start_url = &args[1];
-
-    let mut spider = match Spider::new(start_url) {
+    let mut spider = match Spider::new(&start_url) {
         Ok(spider) => spider,
         Err(e) => {
             println!("Error initializing spider: {}", e);
@@ -149,7 +170,7 @@ fn main() {
         spider.mark_visited(current_url);
         page_count += 1;
 
-        if spider.visited.len() >= 10 {
+        if spider.visited.len() >= 40 {
             println!("Limit Reached, stopping!");
             break;
         }
