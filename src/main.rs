@@ -1,12 +1,13 @@
 use scraper::{Html, Selector, ElementRef};
 use std::{env};
 use std::collections::{HashSet, VecDeque};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use url::Url;
 use std::io::Write;
+mod chunking;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Page {
     url: String,
     title: String,
@@ -168,7 +169,7 @@ fn main() {
         }
 
         spider.mark_visited(current_url);
-        page_count += 1;
+        page_count += 1; 
 
         if spider.visited.len() >= 40 {
             println!("Limit Reached, stopping!");
@@ -178,6 +179,10 @@ fn main() {
 
     println!("\n Done, Saved to pages.jsonl");
     println!("Total pages crawled: {}", page_count);
+    match chunking::chunk_pages("pages.jsonl", "chunks.jsonl", 500) {
+        Ok(_) => println!("Chunking completed, saved to chunks.jsonl"),
+        Err(e) => println!("Error during chunking: {}", e),
+    }
 }
 
 fn should_skip_url(url: &str) -> bool {
