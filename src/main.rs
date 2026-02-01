@@ -6,6 +6,7 @@ use std::fs::OpenOptions;
 use url::Url;
 use std::io::Write;
 mod chunking;
+mod embedding;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Page {
@@ -182,6 +183,14 @@ fn main() {
     match chunking::chunk_pages("pages.jsonl", "chunks.jsonl", 500) {
         Ok(_) => println!("Chunking completed, saved to chunks.jsonl"),
         Err(e) => println!("Error during chunking: {}", e),
+    }
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| {
+        println!("Please set the OPENAI_API_KEY environment variable.");
+        std::process::exit(1);
+    });
+    match embedding::embed_chunks("chunks.jsonl", "vector_chunks.jsonl", &api_key) {
+        Ok(_) => println!("Embedding completed, saved to vector_chunks.jsonl"),
+        Err(e) => println!("Error during embedding: {}", e),
     }
 }
 
