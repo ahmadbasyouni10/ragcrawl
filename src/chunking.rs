@@ -25,10 +25,10 @@ pub fn chunk_pages(input_path: &str, output_path: &str, chunk_size: usize) -> st
             Ok(p) => p,
             Err(_) => continue,
         };
-        let chars: Vec<char> = page.content.chars().collect();
+        let words: Vec<&str> = page.content.split_whitespace().collect();
         let mut chunk_id = 0;
-        for chunk in chars.chunks(chunk_size) {
-            let chunk_text: String = chunk.iter().collect();
+        for chunk in words.chunks(chunk_size) {
+            let chunk_text: String = chunk.join(" ");
             let chunk_struct = Chunk {
                 url: page.url.clone(),
                 title: page.title.clone(),

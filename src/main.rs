@@ -99,6 +99,7 @@ impl Config {
 }
 
 fn main() {
+    dotenv::dotenv().ok();
     let args: Vec<String> = env::args().collect();
     let config = Config::build(&args).unwrap_or_else(|err| {
         println!("Problem parsing arguments: {}", err);
@@ -180,7 +181,7 @@ fn main() {
 
     println!("\n Done, Saved to pages.jsonl");
     println!("Total pages crawled: {}", page_count);
-    match chunking::chunk_pages("pages.jsonl", "chunks.jsonl", 500) {
+    match chunking::chunk_pages("pages.jsonl", "chunks.jsonl", 800) {
         Ok(_) => println!("Chunking completed, saved to chunks.jsonl"),
         Err(e) => println!("Error during chunking: {}", e),
     }

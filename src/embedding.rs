@@ -52,21 +52,34 @@ pub fn embed_chunks(
         let line = line?;
         let chunk: Chunk = match serde_json::from_str(&line) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => { 
+                println!("Failed to parse chunk: {}", e); 
+                continue; 
+            },
         };
         let req_body = OpenAIRequest {
             input: &chunk.chunk_text,
-            model: "text-embedding-ada-002",
+            model: "text-embedding-3-small",
         };
+
+        println!("Embedding chunk_id {} from URL: {}", chunk.chunk_id, chunk.url);
 
         let resp = client
             .post("https://api.openai.com/v1/embeddings")
             .bearer_auth(api_key)
             .json(&req_body)
             .send()?
-            .error_for_status()?;
+            .error_for_status()?; 
 
-        let resp_json: OpenAIResponse = resp.json()?;
+        println!("Completed embedding request for chunk_id {}", chunk.chunk_id);
+
+        let resp_json: OpenAIResponse = match resp.json() {
+            Ok(j) => j,
+            Err(e) => {
+                println!("Failed to parse response JSON for chunk_id {}: {}", chunk.chunk_id, e);
+                continue;
+            }
+        };
         let embedding = resp_json.data[0].embedding.clone();
 
         let vector_chunk = VectorChunk {
