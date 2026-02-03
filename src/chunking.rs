@@ -1,4 +1,4 @@
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 
@@ -8,6 +8,15 @@ pub struct Chunk {
     pub title: String,
     pub chunk_id: usize,
     pub chunk_text: String,
+}
+
+// put this in lib later and take it out of main and here
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Page {
+    url: String,
+    title: String,
+    content: String,
+    links_found: usize,
 }
 
 pub fn chunk_pages(input_path: &str, output_path: &str, chunk_size: usize) -> std::io::Result<()> {
@@ -21,7 +30,7 @@ pub fn chunk_pages(input_path: &str, output_path: &str, chunk_size: usize) -> st
 
     for line in reader.lines() {
         let line = line?;
-        let page: crate::Page = match serde_json::from_str(&line) {
+        let page: Page = match serde_json::from_str(&line) {
             Ok(p) => p,
             Err(_) => continue,
         };
