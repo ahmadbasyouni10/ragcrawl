@@ -15,7 +15,7 @@ fn main() {
     });
 
     println!("Crawling: {}", start_url);
-    crawler::crawl_site(start_url, 40, "pages.jsonl").expect("Crawling failed");
+    crawler::crawl_site_parallel(start_url, 40, "pages.jsonl", 8).expect("Crawling failed");
 
     println!("Chunking...");
     chunking::chunk_pages("pages.jsonl", "chunks.jsonl", 800).expect("Chunking failed");
