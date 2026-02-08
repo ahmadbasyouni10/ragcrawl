@@ -1,83 +1,10 @@
 use scraper::{Html, Selector, ElementRef};
 use std::collections::{HashSet, VecDeque};
-use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
+use std::sync::{Arc, Mutex};
 use url::Url;
 use std::io::Write;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Page {
-    pub url: String,
-    pub title: String,
-    pub content: String,
-    pub links_found: usize,
-}
-
-struct Spider {
-    queue: VecDeque<String>,
-    visited: HashSet<String>,
-    domain: String,
-    base_domain: String,
-}
-
-impl Spider { 
-    fn new(start_url: &str) -> Result<Self, String> {
-        let url = Url::parse(start_url)
-            .map_err(|e| format!("Invalid URL: {}", e))?;
-
-        let domain = url.host_str()
-            .ok_or("No domain found")?
-            .to_string();
-
-        let base_domain = extract_base_domain(&domain);
-
-        let mut spider = Spider {
-            queue: VecDeque::new(),
-            visited: HashSet::new(),
-            domain,
-            base_domain,
-        };
-
-        spider.enqueue(start_url.to_string());
-        Ok(spider)
-    }
-
-    fn enqueue(&mut self, url: String) {
-        if !self.is_same_domain(&url) {
-            return;
-        }
-
-        let normalized = match normalize_url(&url) {
-            Ok(n) => n,
-            Err(_) => return,
-        };
-
-        if !self.visited.contains(&normalized) {
-            self.queue.push_back(normalized);
-        }
-    }
-
-    fn is_same_domain(&self, url: &str) -> bool {
-        if let Ok(parsed_url) = Url::parse(url) {
-            if let Some(host) = parsed_url.host_str() {
-                return host == self.domain
-                    || host == self.base_domain
-                    || host.ends_with(&format!(".{}", self.base_domain));
-            }
-        }
-        false
-    }
-
-    fn dequeue(&mut self) -> Option<String> {
-        self.queue.pop_front()
-    }
-
-    fn mark_visited(&mut self, url: String) {
-        if let Ok(normalized) = normalize_url(&url) {
-            self.visited.insert(normalized);
-        }
-    }
-}
+use crate::Page;
 
 fn should_skip_url(url: &str) -> bool {
     let url_lower = url.to_lowercase();
@@ -256,73 +183,80 @@ fn extract_base_domain(domain: &str) -> String {
     }
 }
 
-pub fn crawl_site(start_url: &str, max_pages: usize, output_path: &str) -> Result<usize, String> {
-    let mut spider = Spider::new(start_url)?;
-    let mut file = OpenOptions::new()
+pub fn crawl_site_parallel(start_url: &str, max_pages: usize, output_path: &str, num_workers: usize) -> Result<usize, String> {
+    let queue = Arc::new(Mutex::new(VecDeque::from([start_url.to_string()])));
+    let visited = Arc::new(Mutex::new(HashSet::new()));
+    let file = Arc::new(Mutex::new(OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(output_path)
-        .map_err(|e| format!("Unable to open file: {}", e))?;
+        .map_err(|e| format!("Unable to open file: {}", e))?,
+    ));
 
-    let mut page_count = 0;
-    while let Some(current_url) = spider.dequeue() {
-        if spider.visited.contains(&current_url) {
-            continue;
-        }
+    let mut handles = Vec::new();
+    for _ in 0..num_workers {
+        let queue = Arc::clone(&queue);
+        let visited = Arc::clone(&visited);
+        let file = Arc::clone(&file);
 
-        println!("\n[{}] Fetching {}", page_count+1, current_url);
+        let handle = std::thread::spawn(move || {
+            loop {
+                let url = {
+                    let mut q = queue.lock().unwrap();
+                    q.pop_front()
+                };
+                let url = match url {
+                    Some(u) => u,
+                    None => break,
+                };
 
-        let html_content = match fetch_page(&current_url) {
-            Ok(content) => content,
-            Err(e) => {
-                println!("Skipped {}", e);
-                spider.mark_visited(current_url);
-                continue;
+                {
+                    let mut v = visited.lock().unwrap();
+                    if v.contains(&url) {
+                        continue;
+                    }
+                    v.insert(url.clone());
+                    if v.len() >= max_pages {
+                        break;
+                    }
+                }
+
+                let html_content = match fetch_page(&url) {
+                    Ok(content) => content,
+                    Err(e) => continue,
+                };
+
+                let found_links = find_links(&url, &html_content);
+                for link in &found_links {
+                    let mut q = queue.lock().unwrap();
+                    q.push_back(link.clone());
+                }
+                let (title, content) = extract_content(&html_content);
+                if title.to_lowercase().contains("404") || title.to_lowercase().contains("not found") || content.to_lowercase().contains("looks like you've taken a wrong turn") {
+                    println!("Skipping Error page: {}", url);
+                    continue;
+                }
+                let page = Page {
+                    url: url.clone(),
+                    title,
+                    content,
+                    links_found: found_links.len(),
+                };
+                let json = serde_json::to_string(&page).unwrap();
+                let mut f = file.lock().unwrap();
+                writeln!(f, "{}", json).ok();   
+
             }
-        };
-
-        println!("Downloaded {} bytes", html_content.len());
-
-        let found_links = find_links(&current_url, &html_content);
-
-        println!("Found {} links on this page", found_links.len());
-
-        for link in &found_links {
-            spider.enqueue(link.clone());
-        }
-
-        let (title, content) = extract_content(&html_content);
-        if title.to_lowercase().contains("not found") ||
-            title.to_lowercase().contains("404") ||
-            content.to_lowercase().contains("looks like you've taken a wrong turn") {
-                println!("Skipped Error Page");
-                spider.mark_visited(current_url);
-                continue;
-            }
-        println!("Title: {}", title);
-        println!("Content length: {}", content.len());
-        let page = Page {
-            url: current_url.clone(),
-            title,
-            content,
-            links_found: found_links.len(),
-        };
-
-        if let Ok(json) = serde_json::to_string(&page) {
-            writeln!(file, "{}", json).ok();
-        }
-
-        spider.mark_visited(current_url);
-        page_count += 1; 
-
-        if spider.visited.len() >= max_pages {
-            println!("Limit Reached, stopping!");
-            break;
-        }
+        });
+        handles.push(handle);
     }
 
-    println!("\n Done, Saved to {}", output_path);
-    println!("Total pages crawled: {}", page_count);
-    Ok(page_count)
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let v = visited.lock().unwrap();
+    println!("Total pages crawled: {}", v.len());
+    Ok(v.len())
 }

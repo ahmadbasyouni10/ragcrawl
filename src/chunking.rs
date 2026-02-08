@@ -1,23 +1,7 @@
-use serde::{Serialize, Deserialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-
-#[derive(Serialize, Debug)]
-pub struct Chunk {
-    pub url: String,
-    pub title: String,
-    pub chunk_id: usize,
-    pub chunk_text: String,
-}
-
-// put this in lib later and take it out of main and here
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Page {
-    url: String,
-    title: String,
-    content: String,
-    links_found: usize,
-}
+use crate::Page;
+use crate::Chunk;
 
 pub fn chunk_pages(input_path: &str, output_path: &str, chunk_size: usize) -> std::io::Result<()> {
     let input_file = File::open(input_path)?;
